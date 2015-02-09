@@ -51,18 +51,16 @@ type follower struct {
 }
 
 // Follow returns an io.ReadCloser that follows the writes to a file.
-func Follow(filename string, fromStart bool) (io.ReadCloser, error) {
+func Follow(filename string, options ...func(*follower) error) (io.ReadCloser, error) {
 	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
 
-	if !fromStart {
-		_, err := file.Seek(0, os.SEEK_END)
-		if err != nil {
-			_ = file.Close()
-			return nil, err
-		}
+	_, err = file.Seek(0, os.SEEK_END)
+	if err != nil {
+		_ = file.Close()
+		return nil, err
 	}
 
 	reader := bufio.NewReader(file)
@@ -94,9 +92,24 @@ func Follow(filename string, fromStart bool) (io.ReadCloser, error) {
 		go f.pollForChanges()
 	}
 
+	for _, option := range options {
+		if err := option(f); err != nil {
+			return nil, err
+		}
+	}
+
 	go f.followFile()
 
 	return f, nil
+}
+
+func FromBeginning(f *follower) error {
+	_, err := f.file.Seek(0, os.SEEK_CUR)
+	if err != nil {
+		_ = f.file.Close()
+		return err
+	}
+	return nil
 }
 
 // Close will remove the watch on the file. Subsequent reads to the file

@@ -21,7 +21,7 @@ func TestImpl(t *testing.T) {
 	var follower io.ReadCloser
 	var err error
 	withTempFile(t, time.Millisecond*150, func(t *testing.T, filename string, file *os.File) error {
-		follower, err = tailf.Follow(filename, false)
+		follower, err = tailf.Follow(filename)
 		return err
 	})
 }
@@ -37,7 +37,7 @@ func canFollowFile(t *testing.T, filename string, file *os.File) error {
 
 	want := strings.Join(toWrite, "")
 
-	follow, err := tailf.Follow(filename, true)
+	follow, err := tailf.Follow(filename)
 	if err != nil {
 		return fmt.Errorf("failed creating tailf.follower: '%v'", err)
 	}
@@ -116,7 +116,7 @@ func canFollowFileOverwritten(t *testing.T, filename string, file *os.File) erro
 
 	want := strings.Join(append(toWrite, toWriteAgain...), "")
 
-	follow, err := tailf.Follow(filename, true)
+	follow, err := tailf.Follow(filename)
 	if err != nil {
 		t.Errorf("creating tailf.follower: %v", err)
 	}
@@ -190,7 +190,7 @@ func canFollowFileFromEnd(t *testing.T, filename string, file *os.File) error {
 
 	want := strings.Join(toWrite, "")
 
-	follow, err := tailf.Follow(filename, false)
+	follow, err := tailf.Follow(filename, tailf.FromBeginning)
 	if err != nil {
 		return fmt.Errorf("failed creating tailf.follower: %v", err)
 	}
@@ -240,7 +240,7 @@ func canFollowFileFromEnd(t *testing.T, filename string, file *os.File) error {
 func TestFollowTruncation(t *testing.T) { withTempFile(t, time.Millisecond*150, canFollowTruncation) }
 
 func canFollowTruncation(t *testing.T, filename string, file *os.File) error {
-	follow, err := tailf.Follow(filename, false)
+	follow, err := tailf.Follow(filename, tailf.FromBeginning)
 	if err != nil {
 		return fmt.Errorf("failed creating tailf.follower: %v", err)
 	}
@@ -285,7 +285,7 @@ func canFollowTruncation(t *testing.T, filename string, file *os.File) error {
 // Continually read from a file that is having data written to it every 5ms, and randomly truncated every [5,55]ms
 func TestFollowRandomTruncation(t *testing.T) {
 	withTempFile(t, time.Second, func(t *testing.T, filename string, file *os.File) error {
-		follow, err := tailf.Follow(filename, false)
+		follow, err := tailf.Follow(filename)
 		if err != nil {
 			return fmt.Errorf("failed creating tailf.follower: %v", err)
 		}
@@ -339,7 +339,7 @@ func TestFollowRandomTruncation(t *testing.T) {
 // Run for 50ms constantly trying to read from a tailf.follower that has nothing to read
 func TestSpinningReader(t *testing.T) {
 	withTempFile(t, time.Millisecond*150, func(t *testing.T, filename string, file *os.File) error {
-		follow, err := tailf.Follow(filename, false)
+		follow, err := tailf.Follow(filename)
 		if err != nil {
 			return fmt.Errorf("failed creating tailf.follower: %v", err)
 		}
@@ -399,7 +399,7 @@ func TestPollingReader(t *testing.T) {
 			return fmt.Errorf("unable to modify tempdir's permissions to disallow listing its contents")
 		}
 
-		follow, err := tailf.Follow(filename, false)
+		follow, err := tailf.Follow(filename)
 		if err != nil {
 			return fmt.Errorf("failed creating tailf.follower: %v", err)
 		}
