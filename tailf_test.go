@@ -42,15 +42,13 @@ func canFollowFile(t *testing.T, filename string, file *os.File) error {
 		return fmt.Errorf("failed creating tailf.follower: '%v'", err)
 	}
 
-	go func() {
-		for _, str := range toWrite {
-			t.Logf("writing %d bytes", len(str))
-			_, err := file.WriteString(str)
-			if err != nil {
-				t.Errorf("failed to write to the file: '%v'", err)
-			}
+	for _, str := range toWrite {
+		t.Logf("writing %d bytes", len(str))
+		_, err := file.WriteString(str)
+		if err != nil {
+			t.Errorf("failed to write to the file: '%v'", err)
 		}
-	}()
+	}
 
 	// this should work, without blocking forever
 	data := make([]byte, len(want))
@@ -104,58 +102,45 @@ func TestCanFollowFileOverwritten(t *testing.T) {
 }
 
 func canFollowFileOverwritten(t *testing.T, filename string, file *os.File) error {
-
-	toWrite := []string{
-		"hello,",
-		" world!",
-	}
-	toWriteAgain := []string{
-		"bonjour,",
-		" le monde!",
-	}
-
-	want := strings.Join(append(toWrite, toWriteAgain...), "")
-
 	follow, err := tailf.Follow(filename, true)
 	if err != nil {
 		t.Errorf("creating tailf.follower: %v", err)
 	}
 
+	want := make([]byte, 100)
+	for i := 0; i < 100; i++ {
+		want[i] = byte(i)
+	}
+
 	go func() {
-		for _, str := range toWrite {
-			t.Logf("writing %d bytes", len(str))
-			_, err := file.WriteString(str)
+		for i := 0; i < 10; i++ {
+			if i == 5 {
+				if err := os.Remove(filename); err != nil {
+					t.Errorf("couldn't delete file %q: %v", filename, err)
+				}
+
+				file, err = os.Create(filename)
+				if err != nil {
+					t.Errorf("failed to write to test file: %v", err)
+				}
+				defer file.Close()
+			}
+
+			block := want[i*10 : (i+1)*10]
+			t.Logf("writing bytes [%d]byte{%v}", len(block), block)
+			_, err := file.Write(block)
 			if err != nil {
 				t.Errorf("failed to write to test file: %v", err)
 			}
+
+			file.Sync()
 		}
-
-		file.Sync()
-
-		if err := os.Remove(filename); err != nil {
-			t.Errorf("couldn't delete file %q: %v", filename, err)
-		}
-
-		file.Sync()
-
-		file, err = os.Create(filename)
-		if err != nil {
-			t.Errorf("failed to write to test file: %v", err)
-		}
-		defer file.Close()
-		for _, str := range toWriteAgain {
-			t.Logf("writing %d bytes", len(str))
-			_, err := file.WriteString(str)
-			if err != nil {
-				t.Errorf("failed to write to test file: %v", err)
-			}
-		}
-
+		t.Log("Finished writing out all the bytes")
 	}()
 
 	// this should work, without blocking forever
-	data := make([]byte, len(want))
-	_, err = io.ReadAtLeast(follow, data, len(want))
+	got := make([]byte, len(want))
+	_, err = io.ReadAtLeast(follow, got, len(want))
 	if err != nil {
 		return err
 	}
@@ -164,8 +149,7 @@ func canFollowFileOverwritten(t *testing.T, filename string, file *os.File) erro
 		t.Errorf("failed to close tailf.follower: %v", err)
 	}
 
-	got := string(data)
-	if want != got {
+	if string(want) != string(got) {
 		t.Errorf("wanted: [%d]byte{'%v'}, got: [%d]byte{'%v'}", len(want), want, len(got), got)
 	}
 
@@ -344,42 +328,43 @@ func TestSpinningReader(t *testing.T) {
 			return fmt.Errorf("failed creating tailf.follower: %v", err)
 		}
 
-		stop := make(chan struct{})
-		timeout := time.AfterFunc(time.Duration(time.Millisecond*50), func() { stop <- struct{}{} })
-
-		read := make(chan struct{}, 1000)
+		// Touch the file repeatedly
 		go func() {
-			t.Log("reader running")
-			buf := make([]byte, 100)
-			for {
-				_, err := follow.Read(buf)
-				if err != nil {
-					t.Errorf("read error: %v", err)
+			for range time.Tick(time.Millisecond * 5) {
+				t.Log("Touching the file")
+
+				if err := os.Chtimes(filename, time.Now(), time.Now()); err != nil {
+					t.Errorf("Unable to touch the file: '%v'", filename)
 				}
-				t.Log("read completed")
-				read <- struct{}{}
 			}
 		}()
 
-		count := 0
-
-		// TODO: fix this
-		func() {
-			for {
+		// Read from the file as quickly as possible
+		var readCount int
+		go func() {
+			buf := make([]byte, 1000)
+			for stop := time.After(time.Millisecond * 50); ; {
 				select {
 				case <-stop:
 					return
-				case <-read:
-					count += 1
-					if count > 5 {
+				default:
+					t.Log("Read called")
+					_, err := follow.Read(buf)
+					if err != nil {
+						t.Errorf("read error: %v", err)
+					}
+					t.Log("Read completed")
+					readCount++
+					if readCount > 5 {
 						t.Error("spinning on read")
 					}
 				}
 			}
 		}()
 
-		t.Logf("read ran '%v' times", count)
-		timeout.Stop()
+		time.Sleep(time.Millisecond * 125)
+
+		t.Logf("Reader read '%v' times", readCount)
 		return nil
 	})
 }

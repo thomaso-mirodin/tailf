@@ -119,6 +119,7 @@ func (f *follower) Close() error {
 
 func (f *follower) Read(b []byte) (int, error) {
 	f.mu.Lock()
+	defer f.mu.Unlock()
 
 	// Refill the buffer
 	_, err := f.fileReader.Peek(1)
@@ -147,7 +148,6 @@ func (f *follower) Read(b []byte) (int, error) {
 		if !open && readable != 0 {
 			break
 		}
-		f.mu.Unlock()
 		if !open {
 			return 0, io.EOF
 		}
@@ -155,20 +155,17 @@ func (f *follower) Read(b []byte) (int, error) {
 	default:
 	}
 
-	if readable == 0 {
+	// Block till there is data to read, check for more data when we get a notification of a change
+	for ; readable == 0; readable = f.fileReader.Buffered() {
 		f.mu.Unlock()
-
-		// wait for the file to grow
 		_, open := <-f.notifyc
+		f.mu.Lock()
 		if !open {
 			return 0, io.EOF
 		}
-		// then let the reader try again
-		return 0, nil
 	}
 
 	n, err := f.reader.Read(b[:imin(readable, len(b))])
-	f.mu.Unlock()
 
 	return n, err
 }
@@ -303,10 +300,9 @@ func (f *follower) fillFileBuffer() error {
 // will be missed. tl;dr, don't use copy-truncate...
 func (f *follower) checkForTruncate() error {
 	f.mu.Lock()
-
 	fi, err := os.Stat(f.filename)
-
 	f.mu.Unlock()
+
 	if os.IsNotExist(err) {
 		return ErrFileRemoved{fmt.Errorf("file was removed: %v", f.filename)}
 	}
@@ -342,7 +338,9 @@ func (f *follower) pollForChanges() {
 			switch os.SameFile(currentFile, previousFile) {
 			case true:
 				// No change, do nothing
-				break
+				if err := f.fillFileBuffer(); err != nil {
+					f.errc <- err
+				}
 			case false:
 				previousFile = currentFile
 				if err := f.reopenFile(); err != nil {
