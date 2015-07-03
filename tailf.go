@@ -261,18 +261,15 @@ func (f *follower) reopenFile() error {
 	}
 
 	// recover buffered bytes
-	unreadByteCount := f.rotationBuffer.Len() + f.fileReader.Buffered()
-	buf := bytes.NewBuffer(make([]byte, unreadByteCount))
+	unreadByteCount := int64(f.rotationBuffer.Len() + f.fileReader.Buffered())
 
-	n, err := f.reader.Read(buf.Bytes())
+	var buf bytes.Buffer
+	_, err = io.CopyN(&buf, f.reader, unreadByteCount)
 	if err != nil {
 		return err
-	} else if n != unreadByteCount {
-		return fmt.Errorf("failed to flush the buffer completely: Actual(%d) | Expected(%d) | buf_len(%d)", n, unreadByteCount, buf.Len())
 	}
-
 	f.fileReader.Reset(f.file)
-	f.rotationBuffer = buf
+	f.rotationBuffer = &buf
 
 	// append buffered bytes before the new file
 	f.reader = io.MultiReader(f.rotationBuffer, f.fileReader)
