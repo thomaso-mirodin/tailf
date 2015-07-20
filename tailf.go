@@ -142,7 +142,6 @@ func (f *follower) Read(b []byte) (int, error) {
 	}
 	readable := f.fileReader.Buffered()
 
-	// check for errors before doing anything
 	select {
 	case err, open := <-f.errc:
 		if !open && readable != 0 {
@@ -160,8 +159,10 @@ func (f *follower) Read(b []byte) (int, error) {
 		f.mu.Unlock()
 		_, open := <-f.notifyc
 		f.mu.Lock()
-		if !open {
+		if !open && readable == 0 {
 			return 0, io.EOF
+		} else {
+			f.fileReader.Peek(1)
 		}
 	}
 
