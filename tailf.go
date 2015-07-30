@@ -72,13 +72,13 @@ func Follow(filename string, fromStart bool) (io.ReadCloser, error) {
 		return nil, err
 	}
 
-	absolute_path, err := filepath.Abs(filename)
+	path, err := filepath.Abs(filename)
 	if err != nil {
 		return nil, err
 	}
 
 	f := &follower{
-		filename:       absolute_path,
+		filename:       path,
 		notifyc:        make(chan struct{}),
 		errc:           make(chan error),
 		file:           file,
@@ -89,7 +89,7 @@ func Follow(filename string, fromStart bool) (io.ReadCloser, error) {
 		size:           0,
 	}
 
-	if err := watch.Add(filepath.Dir(absolute_path)); err != nil {
+	if err := watch.Add(filepath.Dir(path)); err != nil {
 		// If we can't watch the directory, we need to poll the file to see if it changes
 		go f.pollForChanges()
 	}
@@ -161,9 +161,8 @@ func (f *follower) Read(b []byte) (int, error) {
 		f.mu.Lock()
 		if !open && readable == 0 {
 			return 0, io.EOF
-		} else {
-			f.fileReader.Peek(1)
 		}
+		f.fileReader.Peek(1)
 	}
 
 	n, err := f.reader.Read(b[:imin(readable, len(b))])
